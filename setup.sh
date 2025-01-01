@@ -4,9 +4,6 @@
 sudo apt update
 sudo apt install -y git nodejs npm mysql-server
 
-# Projeyi GitHub'dan çek
-git clone https://github.com/fberkcanik/ubuntu-bot.git
-cd ubuntu-bot
 
 # app.js dosyasını oluştur
 cat > app.js << EOF
