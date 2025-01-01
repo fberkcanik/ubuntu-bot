@@ -2,15 +2,84 @@
 
 # Gerekli paketleri yükle
 sudo apt update
-sudo apt install -y nodejs npm mysql-server
+sudo apt install -y git nodejs npm mysql-server
 
-# MySQL root şifresini ayarla
-sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '305507gold';"
+# Projeyi GitHub'dan çek
+git clone https://github.com/fberkcanik/ubuntu-bot.git
+cd ubuntu-bot
 
-# Veritabanı ve tabloyu oluştur
-mysql -u root -p305507gold << EOF
-CREATE DATABASE IF NOT EXISTS bot_database;
-USE bot_database;
+# app.js dosyasını oluştur
+cat > app.js << EOF
+require('dotenv').config();
+const express = require('express');
+const axios = require('axios');
+const mysql = require('mysql2/promise');
+const app = express();
+
+app.use(express.json());
+
+// Veritabanı bağlantı havuzu
+const pool = mysql.createPool({
+    host: 'localhost',
+    user: 'root',
+    password: '305507gold',
+    database: 'bot_database'
+});
+
+const TOKEN = '7567212917:AAHeAtNVzR7LbsIj2G5JhBmPUfG0C0AGsxQ';
+const TELEGRAM_API = \`https://api.telegram.org/bot\${TOKEN}\`;
+
+// Webhook endpoint'i
+app.post('/webhook', async (req, res) => {
+    try {
+        const { message } = req.body;
+        
+        if (!message) {
+            return res.sendStatus(200);
+        }
+
+        const chatId = message.chat.id;
+        const text = message.text;
+
+        // Gelen mesaja göre yanıt oluştur
+        let responseText = 'Mesajınız alındı!';
+        
+        if (text === '/start') {
+            responseText = 'Hoş geldiniz! Size nasıl yardımcı olabilirim?';
+        }
+
+        // Telegram'a yanıt gönder
+        await axios.post(\`\${TELEGRAM_API}/sendMessage\`, {
+            chat_id: chatId,
+            text: responseText
+        });
+
+        // Mesajı veritabanına kaydet
+        const connection = await pool.getConnection();
+        try {
+            await connection.execute(
+                'INSERT INTO messages (chat_id, message, response) VALUES (?, ?, ?)',
+                [chatId, text, responseText]
+            );
+        } finally {
+            connection.release();
+        }
+
+        res.sendStatus(200);
+    } catch (error) {
+        console.error('Hata:', error);
+        res.sendStatus(500);
+    }
+});
+
+const PORT = 3000;
+app.listen(PORT, () => {
+    console.log(\`Server \${PORT} portunda çalışıyor\`);
+});
+EOF
+
+# setup.sql dosyasını oluştur
+cat > setup.sql << EOF
 CREATE TABLE IF NOT EXISTS messages (
     id INT AUTO_INCREMENT PRIMARY KEY,
     chat_id BIGINT NOT NULL,
@@ -18,25 +87,6 @@ CREATE TABLE IF NOT EXISTS messages (
     response TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-EOF
-
-# Proje klasörünü oluştur
-mkdir -p ~/telegram-bot
-cd ~/telegram-bot
-
-# package.json oluştur
-cat > package.json << EOF
-{
-  "name": "telegram-bot",
-  "version": "1.0.0",
-  "main": "app.js",
-  "dependencies": {
-    "express": "^4.18.2",
-    "axios": "^1.6.2",
-    "mysql2": "^3.6.5",
-    "dotenv": "^16.3.1"
-  }
-}
 EOF
 
 # setup-webhook.js dosyasını oluştur
@@ -60,7 +110,17 @@ async function setupWebhook() {
 setupWebhook();
 EOF
 
-# Bağımlılıkları yükle
+# MySQL root şifresini ayarla
+sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '305507gold';"
+
+# Veritabanı ve tabloyu oluştur
+mysql -u root -p305507gold << EOF
+CREATE DATABASE IF NOT EXISTS bot_database;
+USE bot_database;
+$(cat setup.sql)
+EOF
+
+# Node.js bağımlılıklarını yükle
 npm install
 
 # PM2'yi global olarak yükle
@@ -99,7 +159,7 @@ sudo nginx -t
 sudo systemctl restart nginx
 
 # SSL sertifikası al
-sudo certbot --nginx -d api.visionifobot.com --non-interactive --agree-tos --email bedosom@gmail.com
+sudo certbot --nginx -d api.visionifobot.com --non-interactive --agree-tos --email your-email@example.com
 
 # Webhook'u ayarla
 node setup-webhook.js
